@@ -1,0 +1,62 @@
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project]
+name = "mcp-ortools"
+version = "0.1.0"
+description = "MCP server with a Google OR-Tools backend."
+readme = "README.md"
+license = { file = "LICENSE" }
+requires-python = ">=3.10"
+authors = [
+  { name = "Jacck" },
+]
+keywords = [
+  "mcp",
+  "model-context-protocol",
+  "optimization",
+  "or-tools",
+  "constraint-solving",
+]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.10",
+  "Topic :: Scientific/Engineering :: Artificial Intelligence",
+  "Topic :: Scientific/Engineering :: Mathematics",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+]
+dependencies = [
+  "aiohttp>=3.8.1",
+  "mcp>=0.1.0",
+  "ortools>=9.4.1874",
+  "pydantic>=1.9.0",
+]
+
+[project.scripts]
+mcp-ortools = "mcp_ortools.server:main"
+
+[tool.uv]
+package = true
+
+[dependency-groups]
+dev = [
+  "pre-commit>=4.6.0",
+  "pyright>=1.1.409",
+  "pytest>=9.0.3",
+  "ruff>=0.15.11",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"

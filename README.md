@@ -12,19 +12,35 @@ MCP-ORTools integrates Google's OR-Tools constraint programming solver with Larg
 
 ## Installation
 
-1. Install the package:
+### Prerequisites
+
+- Python 3.10+
+- `uv`
+
+1. Clone this repository:
 ```bash
-pip install git+https://github.com/Jacck/mcp-ortools.git
+git clone https://github.com/Jacck/mcp-ortools.git
+cd mcp-ortools
 ```
 
-2. Configure Claude Desktop
+2. Sync the project dependencies:
+```bash
+uv sync
+```
+
+3. Optional: install the git hooks:
+```bash
+uv run pre-commit install
+```
+
+4. Configure Claude Desktop
 Create the configuration file at `%APPDATA%\Claude\claude_desktop_config.json` (Windows) or `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS):
 ```json
 {
   "mcpServers": {
     "ortools": {
-      "command": "python",
-      "args": ["-m", "mcp_ortools.server"]
+      "command": "uv",
+      "args": ["run", "mcp-ortools"]
     }
   }
 }
@@ -39,11 +55,11 @@ Models are specified in JSON format with three main sections:
 
 ### Constraint Syntax
 
-Constraints must use OR-Tools method syntax:
-- `.__le__()` for less than or equal (<=)
-- `.__ge__()` for greater than or equal (>=)
-- `.__eq__()` for equality (==)
-- `.__ne__()` for not equal (!=)
+Constraints can use ordinary comparison operators or OR-Tools method syntax:
+- `<=` or `.__le__()` for less than or equal
+- `>=` or `.__ge__()` for greater than or equal
+- `==` or `.__eq__()` for equality
+- `!=` or `.__ne__()` for not equal
 
 ## Usage Examples
 
@@ -86,13 +102,53 @@ Example: Select items with values [3,1,2,1] and weights [2,2,1,1] with total wei
 }
 ```
 
+### Maintenance Scheduling Example
+
+OR-Tools CP-SAT is also a good fit for scheduling problems where work must be placed on a timeline while respecting capacity and concurrency constraints. For example, [Atalay Kutlay's maintenance scheduling write-up](https://atalaykutlay.com/or-tools-cp-sat-for-scheduling-problems.html) models VM migrations during hypervisor maintenance and uses CP-SAT to reason about capacity, concurrency, and customer-disruption conflicts.
+
+This server's JSON model format can express a small linear version of that idea. In this example, `vm_1` must run before `vm_2`, each migration takes 10 time units, and the objective minimizes the final completion time:
+
+```json
+{
+    "variables": [
+        {"name": "vm_1_start", "domain": [0, 20]},
+        {"name": "vm_2_start", "domain": [0, 20]},
+        {"name": "makespan", "domain": [0, 30]}
+    ],
+    "constraints": [
+        "vm_2_start >= vm_1_start + 10",
+        "makespan >= vm_2_start + 10"
+    ],
+    "objective": {
+        "expression": "makespan",
+        "maximize": false
+    }
+}
+```
+
+Expected solution:
+
+```json
+{
+    "status": "OPTIMAL",
+    "variables": {
+        "vm_1_start": 0,
+        "vm_2_start": 10,
+        "makespan": 20
+    },
+    "objective_value": 20.0
+}
+```
+
+The full Python OR-Tools API supports richer scheduling primitives such as interval variables, no-overlap constraints, and cumulative resource constraints; those are the natural next extensions for this MCP server if you want to expose more of CP-SAT's scheduling surface.
+
 Additional constraints example:
 ```json
 {
     "constraints": [
-        "p0.__eq__(1)",         // Item p0 must be selected
-        "p1.__ne__(p2)",        // Can't select both p1 and p2
-        "(p2 + p3).__ge__(1)"   // Must select at least one of p2 or p3
+        "p0 == 1",
+        "p1 != p2",
+        "p2 + p3 >= 1"
     ]
 }
 ```
@@ -112,7 +168,7 @@ Additional constraints example:
 
 ### Supported Operations in Constraints
 - Basic arithmetic: +, -, *
-- Comparisons: .__le__(), .__ge__(), .__eq__(), .__ne__()
+- Comparisons: <=, >=, ==, !=
 - Linear combinations of variables
 - Binary logic through combinations of constraints
 
@@ -122,7 +178,10 @@ To setup for development:
 ```bash
 git clone https://github.com/Jacck/mcp-ortools.git
 cd mcp-ortools
-pip install -e .
+uv sync --all-groups
+uv run pytest
+uv run ruff check .
+uv run pyright
 ```
 
 ## Model Response Format

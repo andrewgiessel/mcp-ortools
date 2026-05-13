@@ -1,39 +1,40 @@
 import asyncio
 import logging
-from typing import List, Optional, Any
-from mcp.server import Server, NotificationOptions
-from mcp.server.models import InitializationOptions
+from typing import Any
+
 import mcp.server.stdio
 import mcp.types as types
+from mcp.server import NotificationOptions, Server
+from mcp.server.models import InitializationOptions
 from mcp.shared.exceptions import McpError
 
-from .solver_manager import SolverManager, SolverError
+from .solver_manager import SolverError, SolverManager
 
 logger = logging.getLogger(__name__)
+
+
+def mcp_error(code: int, message: str, data: Any | None = None) -> McpError:
+    return McpError(types.ErrorData(code=code, message=message, data=data))
+
 
 async def serve() -> None:
     """Main server function that handles the MCP protocol"""
     logger.info("Starting OR-Tools MCP server")
-    
+
     server = Server("ortools")
     solver_mgr = SolverManager()
 
     @server.list_tools()
-    async def list_tools() -> List[types.Tool]:
+    async def list_tools() -> list[types.Tool]:
         return [
             types.Tool(
                 name="submit_model",
                 description="Submit an optimization model in JSON format",
                 inputSchema={
                     "type": "object",
-                    "properties": {
-                        "model": {
-                            "type": "string",
-                            "description": "Model specification in JSON format"
-                        }
-                    },
-                    "required": ["model"]
-                }
+                    "properties": {"model": {"type": "string", "description": "Model specification in JSON format"}},
+                    "required": ["model"],
+                },
             ),
             types.Tool(
                 name="solve_model",
@@ -41,39 +42,33 @@ async def serve() -> None:
                 inputSchema={
                     "type": "object",
                     "properties": {
-                        "timeout": {
-                            "type": ["number", "null"],
-                            "description": "Optional solve timeout in seconds"
-                        }
-                    }
-                }
+                        "timeout": {"type": ["number", "null"], "description": "Optional solve timeout in seconds"}
+                    },
+                },
             ),
             types.Tool(
                 name="get_solution",
                 description="Get the current solution if available",
-                inputSchema={
-                    "type": "object",
-                    "properties": {}
-                }
-            )
+                inputSchema={"type": "object", "properties": {}},
+            ),
         ]
 
     @server.call_tool()
-    async def handle_call_tool(name: str, arguments: dict) -> List[types.TextContent]:
+    async def handle_call_tool(name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
         """Handle tool calls and map them to solver operations"""
         logger.debug(f"Tool call: {name} with arguments {arguments}")
-        
+
         try:
             match name:
                 case "submit_model":
                     model_str = arguments.get("model")
                     if not model_str:
-                        raise McpError("Model required", "model parameter is required")
-                        
+                        raise mcp_error(types.INVALID_PARAMS, "model parameter is required")
+
                     valid, message = solver_mgr.parse_model(model_str)
                     if not valid:
-                        raise McpError("Invalid model", message)
-                    
+                        raise mcp_error(types.INVALID_PARAMS, message)
+
                     logger.info("Model submitted successfully")
                     return [types.TextContent(type="text", text="Model submitted successfully")]
 
@@ -84,22 +79,22 @@ async def serve() -> None:
                         logger.info(f"Solve completed with status {result.get('status')}")
                         return [types.TextContent(type="text", text=str(result))]
                     except SolverError as e:
-                        raise McpError("Solver error", str(e))
+                        raise mcp_error(types.INTERNAL_ERROR, str(e)) from e
 
                 case "get_solution":
                     solution = solver_mgr.get_current_solution()
                     if solution is None:
-                        raise McpError("No solution", "No solution is available")
+                        raise mcp_error(types.INVALID_PARAMS, "No solution is available")
                     return [types.TextContent(type="text", text=str(solution))]
 
                 case _:
-                    raise McpError("Unknown tool", f"Tool {name} not found")
+                    raise mcp_error(types.METHOD_NOT_FOUND, f"Tool {name} not found")
 
         except McpError:
             raise
         except Exception as e:
             logger.exception(f"Error in {name}")
-            raise McpError("Tool execution failed", str(e))
+            raise mcp_error(types.INTERNAL_ERROR, str(e)) from e
 
     logger.info("Starting STDIO server")
     async with mcp.server.stdio.stdio_server() as (read_stream, write_stream):
@@ -117,6 +112,7 @@ async def serve() -> None:
             ),
         )
 
+
 def main() -> int:
     """Main entry point"""
     try:
@@ -125,9 +121,10 @@ def main() -> int:
     except KeyboardInterrupt:
         logger.info("Server stopped by user")
         return 0
-    except Exception as e:
+    except Exception:
         logger.exception("Server error")
         return 1
+
 
 if __name__ == "__main__":
     main()

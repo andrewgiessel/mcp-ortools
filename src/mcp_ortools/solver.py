@@ -1,63 +1,67 @@
-from ortools.sat.python import cp_model
-from typing import Dict, Any, Optional, List, Union
 from dataclasses import dataclass
 import time
+from typing import Any, Optional, Union
+
+from ortools.sat.python import cp_model
+
 
 @dataclass
 class Solution:
     """Represents a solution from the solver"""
-    variables: Dict[str, Any]
+
+    variables: dict[str, Any]
     status: str
     solve_time: float
     objective_value: Optional[float] = None
 
+
 class SolutionCallback(cp_model.CpSolverSolutionCallback):
     """Callback to handle solutions during solving"""
-    def __init__(self, variables: Dict[str, cp_model.IntVar]):
+
+    def __init__(self, variables: dict[str, cp_model.IntVar]):
         cp_model.CpSolverSolutionCallback.__init__(self)
         self.__variables = variables
-        self.solutions: List[Dict[str, Any]] = []
+        self.solutions: list[dict[str, Any]] = []
 
     def on_solution_callback(self) -> None:
-        solution = {
-            name: self.Value(var)
-            for name, var in self.__variables.items()
-        }
+        solution = {name: self.Value(var) for name, var in self.__variables.items()}
         self.solutions.append(solution)
+
 
 class ORToolsSolver:
     """Main solver class using OR-Tools"""
+
     def __init__(self):
         self.model = cp_model.CpModel()
         self.solver = cp_model.CpSolver()
-        self.variables: Dict[str, cp_model.IntVar] = {}
-        self.parameters: Dict[str, Any] = {}
+        self.variables: dict[str, cp_model.IntVar] = {}
+        self.parameters: dict[str, Any] = {}
         self.last_solution: Optional[Solution] = None
         self._objective = None
 
     def create_variable(self, name: str, domain: tuple[int, int]) -> cp_model.IntVar:
         """Create a new integer variable"""
-        var = self.model.NewIntVar(domain[0], domain[1], name)
+        var = self.model.new_int_var(domain[0], domain[1], name)
         self.variables[name] = var
         return var
 
     def create_bool_variable(self, name: str) -> cp_model.IntVar:
         """Create a new boolean variable"""
-        var = self.model.NewBoolVar(name)
+        var = self.model.new_bool_var(name)
         self.variables[name] = var
         return var
 
-    def add_constraint(self, constraint: cp_model.Constraint) -> None:
+    def add_constraint(self, constraint: Any) -> None:
         """Add a constraint to the model"""
-        self.model.Add(constraint)
+        self.model.add(constraint)
 
     def set_objective(self, objective: Union[cp_model.LinearExpr, cp_model.IntVar], maximize: bool = True) -> None:
         """Set the optimization objective"""
         self._objective = objective
         if maximize:
-            self.model.Maximize(objective)
+            self.model.maximize(objective)
         else:
-            self.model.Minimize(objective)
+            self.model.minimize(objective)
 
     def solve(self, timeout: Optional[int] = None) -> Solution:
         """Solve the model with the given timeout"""
@@ -74,7 +78,7 @@ class ORToolsSolver:
             cp_model.FEASIBLE: "FEASIBLE",
             cp_model.INFEASIBLE: "INFEASIBLE",
             cp_model.UNKNOWN: "UNKNOWN",
-            cp_model.MODEL_INVALID: "INVALID"
+            cp_model.MODEL_INVALID: "INVALID",
         }
 
         if status in [cp_model.OPTIMAL, cp_model.FEASIBLE] and callback.solutions:
@@ -88,7 +92,7 @@ class ORToolsSolver:
             variables=variables,
             status=status_map.get(status, "UNKNOWN"),
             solve_time=solve_time,
-            objective_value=objective_value
+            objective_value=objective_value,
         )
         return self.last_solution
 

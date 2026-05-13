@@ -1,0 +1,11 @@
+{
+  "include": [
+    "src/mcp_ortools",
+    "tests"
+  ],
+  "venvPath": ".",
+  "venv": ".venv",
+  "pythonVersion": "3.10",
+  "typeCheckingMode": "basic",
+  "reportMissingTypeStubs": "none"
+}
