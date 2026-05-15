@@ -86,7 +86,9 @@ class SolverManager:
                         raise ValueError("Interval must be an object")
                     self._create_interval(interval_def)
                 except Exception as e:
-                    interval_name = interval_def.get("name", "<unnamed>") if isinstance(interval_def, dict) else "<unnamed>"
+                    interval_name = (
+                        interval_def.get("name", "<unnamed>") if isinstance(interval_def, dict) else "<unnamed>"
+                    )
                     return False, f"Invalid interval '{interval_name}': {str(e)}"
 
             # Add constraints
@@ -145,7 +147,11 @@ class SolverManager:
             self.variables[name] = self.model.new_bool_var(name)
             return
 
-        if isinstance(domain_def, list) and len(domain_def) == 2 and all(isinstance(value, int) for value in domain_def):
+        if (
+            isinstance(domain_def, list)
+            and len(domain_def) == 2
+            and all(isinstance(value, int) for value in domain_def)
+        ):
             self.variables[name] = self.model.new_int_var(domain_def[0], domain_def[1], name)
             return
 
@@ -198,7 +204,9 @@ class SolverManager:
             )
             return
 
-        self.intervals[name] = self.model.new_optional_interval_var(start, size, end, self._build_literal(presence), name)
+        self.intervals[name] = self.model.new_optional_interval_var(
+            start, size, end, self._build_literal(presence), name
+        )
 
     def _add_constraint(self, constraint_def: Any) -> None:
         """Add either a legacy string constraint or a structured constraint."""
@@ -239,7 +247,9 @@ class SolverManager:
                     self._build_literal(constraint_def.get("then")),
                 )
             case "all_different":
-                expressions = self._build_expressions(constraint_def.get("expressions", constraint_def.get("variables", [])))
+                expressions = self._build_expressions(
+                    constraint_def.get("expressions", constraint_def.get("variables", []))
+                )
                 if not expressions:
                     raise ValueError("all_different constraint requires at least one variable")
                 constraint = self.model.add_all_different(*expressions)
@@ -325,12 +335,16 @@ class SolverManager:
                 expressions = [self._build_expression(str(expr)) for expr in constraint_def.get("expressions", [])]
                 if not expressions:
                     raise ValueError("max_equality constraint requires at least one expression")
-                constraint = self.model.add_max_equality(self._required_expression(constraint_def, "target"), *expressions)
+                constraint = self.model.add_max_equality(
+                    self._required_expression(constraint_def, "target"), *expressions
+                )
             case "min_equality":
                 expressions = [self._build_expression(str(expr)) for expr in constraint_def.get("expressions", [])]
                 if not expressions:
                     raise ValueError("min_equality constraint requires at least one expression")
-                constraint = self.model.add_min_equality(self._required_expression(constraint_def, "target"), *expressions)
+                constraint = self.model.add_min_equality(
+                    self._required_expression(constraint_def, "target"), *expressions
+                )
             case "abs_equality":
                 constraint = self.model.add_abs_equality(
                     self._required_expression(constraint_def, "target"),

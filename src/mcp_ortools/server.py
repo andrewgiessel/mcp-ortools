@@ -47,7 +47,9 @@ def list_mcp_tools() -> list[types.Tool]:
             description="Solve the current CP-SAT optimization model",
             inputSchema={
                 "type": "object",
-                "properties": {"timeout": {"type": ["number", "null"], "description": "Optional solve timeout in seconds"}},
+                "properties": {
+                    "timeout": {"type": ["number", "null"], "description": "Optional solve timeout in seconds"}
+                },
             },
         ),
         types.Tool(

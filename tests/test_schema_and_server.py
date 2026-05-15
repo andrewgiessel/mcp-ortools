@@ -46,7 +46,14 @@ def test_solver_manager_uses_shape_validation_before_parsing():
 def test_mcp_tools_expose_schema_and_capabilities():
     tool_names = {tool.name for tool in list_mcp_tools()}
 
-    assert {"submit_model", "validate_model", "solve_model", "get_solution", "describe_schema", "list_capabilities"} <= tool_names
+    assert {
+        "submit_model",
+        "validate_model",
+        "solve_model",
+        "get_solution",
+        "describe_schema",
+        "list_capabilities",
+    } <= tool_names
 
 
 def test_mcp_validate_model_does_not_replace_active_model():
