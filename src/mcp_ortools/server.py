@@ -9,7 +9,8 @@ from mcp.server import NotificationOptions, Server
 from mcp.server.models import InitializationOptions
 from mcp.shared.exceptions import McpError
 
-from .solver_manager import SolverError, SolverManager
+from .adapters import SolverSessionManager
+from .solver_manager import SolverError
 
 logger = logging.getLogger(__name__)
 
@@ -25,98 +26,143 @@ def json_text(data: Any) -> list[types.TextContent]:
 def list_mcp_tools() -> list[types.Tool]:
     return [
         types.Tool(
+            name="list_solver_families",
+            description="List available OR-Tools solver families",
+            inputSchema={"type": "object", "properties": {}},
+        ),
+        types.Tool(
             name="submit_model",
-            description="Submit and validate a CP-SAT optimization model in JSON format",
+            description="Submit and validate an OR-Tools model in JSON format",
             inputSchema={
                 "type": "object",
-                "properties": {"model": {"type": "string", "description": "CP-SAT model specification as JSON"}},
+                "properties": {
+                    "family": {"type": ["string", "null"], "description": "Solver family, default cp_sat"},
+                    "model": {"type": "string", "description": "Model specification as JSON"},
+                    "session_id": {"type": ["string", "null"], "description": "Optional model session id"},
+                },
                 "required": ["model"],
             },
         ),
         types.Tool(
             name="validate_model",
-            description="Validate a CP-SAT model without storing it as the active model",
+            description="Validate an OR-Tools model without storing it as the active model",
             inputSchema={
                 "type": "object",
-                "properties": {"model": {"type": "string", "description": "CP-SAT model specification as JSON"}},
+                "properties": {
+                    "family": {"type": ["string", "null"], "description": "Solver family, default cp_sat"},
+                    "model": {"type": "string", "description": "Model specification as JSON"},
+                },
                 "required": ["model"],
             },
         ),
         types.Tool(
             name="solve_model",
-            description="Solve the current CP-SAT optimization model",
+            description="Solve a submitted OR-Tools model session",
             inputSchema={
                 "type": "object",
                 "properties": {
-                    "timeout": {"type": ["number", "null"], "description": "Optional solve timeout in seconds"}
+                    "session_id": {"type": ["string", "null"], "description": "Optional model session id"},
+                    "timeout": {"type": ["number", "null"], "description": "Optional solve timeout in seconds"},
+                    "parameters": {"type": ["object", "null"], "description": "Optional solve-time parameters"},
                 },
             },
         ),
         types.Tool(
             name="get_solution",
-            description="Get the current solution if available",
-            inputSchema={"type": "object", "properties": {}},
+            description="Get the current solution for a model session if available",
+            inputSchema={
+                "type": "object",
+                "properties": {"session_id": {"type": ["string", "null"], "description": "Optional model session id"}},
+            },
+        ),
+        types.Tool(
+            name="clear_model",
+            description="Clear one model session or all sessions",
+            inputSchema={
+                "type": "object",
+                "properties": {"session_id": {"type": ["string", "null"], "description": "Optional model session id"}},
+            },
         ),
         types.Tool(
             name="describe_schema",
-            description="Return the JSON schema for the CP-SAT model format",
-            inputSchema={"type": "object", "properties": {}},
+            description="Return the JSON schema for a solver-family model format",
+            inputSchema={
+                "type": "object",
+                "properties": {"family": {"type": ["string", "null"], "description": "Solver family, default cp_sat"}},
+            },
         ),
         types.Tool(
             name="list_capabilities",
-            description="Return supported OR-Tools/CP-SAT capabilities and known gaps",
-            inputSchema={"type": "object", "properties": {}},
+            description="Return supported OR-Tools capabilities and known gaps",
+            inputSchema={
+                "type": "object",
+                "properties": {"family": {"type": ["string", "null"], "description": "Optional solver family"}},
+            },
         ),
     ]
 
 
-async def handle_tool_call(solver_mgr: SolverManager, name: str, arguments: dict[str, Any]) -> list[types.TextContent]:
+async def handle_tool_call(
+    solver_mgr: SolverSessionManager, name: str, arguments: dict[str, Any]
+) -> list[types.TextContent]:
     """Handle tool calls and map them to solver operations."""
     logger.debug(f"Tool call: {name} with arguments {arguments}")
 
     try:
         match name:
+            case "list_solver_families":
+                return json_text({"solver_families": solver_mgr.list_solver_families()})
+
             case "submit_model":
                 model_str = arguments.get("model")
                 if not model_str:
                     raise mcp_error(types.INVALID_PARAMS, "model parameter is required")
 
-                valid, message = solver_mgr.parse_model(model_str)
+                valid, message, session_id = solver_mgr.submit_model(
+                    arguments.get("family"),
+                    model_str,
+                    arguments.get("session_id") or "default",
+                )
                 if not valid:
                     raise mcp_error(types.INVALID_PARAMS, message)
 
                 logger.info("Model submitted successfully")
-                return json_text({"valid": True, "message": "Model submitted successfully"})
+                return json_text({"valid": True, "message": "Model submitted successfully", "session_id": session_id})
 
             case "validate_model":
                 model_str = arguments.get("model")
                 if not model_str:
                     raise mcp_error(types.INVALID_PARAMS, "model parameter is required")
 
-                validation_mgr = SolverManager()
-                valid, message = validation_mgr.parse_model(model_str)
+                valid, message = solver_mgr.validate_model(arguments.get("family"), model_str)
                 return json_text({"valid": valid, "message": message})
 
             case "solve_model":
                 try:
                     timeout = arguments.get("timeout")
-                    result = solver_mgr.solve(timeout)
+                    result = solver_mgr.solve_model(
+                        arguments.get("session_id") or "default", timeout, arguments.get("parameters")
+                    )
                     logger.info(f"Solve completed with status {result.get('status')}")
                     return json_text(result)
                 except SolverError as e:
                     raise mcp_error(types.INTERNAL_ERROR, str(e)) from e
 
             case "get_solution":
-                solution = solver_mgr.get_current_solution()
+                solution = solver_mgr.get_solution(arguments.get("session_id") or "default")
                 if solution is None:
                     raise mcp_error(types.INVALID_PARAMS, "No solution is available")
                 return json_text(solution)
 
+            case "clear_model":
+                solver_mgr.clear_model(arguments.get("session_id"))
+                return json_text({"cleared": True})
+
             case "describe_schema":
-                return json_text(solver_mgr.get_model_schema())
+                return json_text(solver_mgr.get_schema(arguments.get("family")))
 
             case "list_capabilities":
-                return json_text(solver_mgr.get_capabilities())
+                return json_text(solver_mgr.get_capabilities(arguments.get("family")))
 
             case _:
                 raise mcp_error(types.METHOD_NOT_FOUND, f"Tool {name} not found")
@@ -133,7 +179,7 @@ async def serve() -> None:
     logger.info("Starting OR-Tools MCP server")
 
     server = Server("ortools")
-    solver_mgr = SolverManager()
+    solver_mgr = SolverSessionManager()
 
     @server.list_tools()
     async def list_tools() -> list[types.Tool]:

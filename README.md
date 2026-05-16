@@ -1,10 +1,10 @@
 # MCP-ORTools
 
-A Model Context Protocol (MCP) server for Google OR-Tools. The current implementation focuses on an LLM-friendly JSON interface for CP-SAT constraint programming models.
+A Model Context Protocol (MCP) server for Google OR-Tools. The current implementation provides LLM-friendly JSON interfaces for CP-SAT, Routing, MathOpt, pywraplp linear/MIP solving, graph flow algorithms, and knapsack.
 
 ## Overview
 
-MCP-ORTools integrates Google's OR-Tools constraint programming solver with Large Language Models through the Model Context Protocol, enabling AI models to:
+MCP-ORTools integrates Google OR-Tools with Large Language Models through the Model Context Protocol, enabling AI models to:
 
 - Submit and validate constraint models
 - Discover the supported JSON schema and solver capabilities
@@ -14,9 +14,16 @@ MCP-ORTools integrates Google's OR-Tools constraint programming solver with Larg
 
 ## Current Scope
 
-The server currently targets OR-Tools CP-SAT through `CpModel`. It covers the main CP-SAT modeling primitives through structured JSON, including linear constraints, boolean logic, tables, automata, circuits, scheduling intervals, no-overlap, cumulative, reservoir, and integer arithmetic equality constraints.
+The server exposes separate solver-family surfaces that match OR-Tools' own API boundaries:
 
-It does not yet expose the full OR-Tools package. Routing, linear/MIP optimization, network flow, MathOpt, and specialized algorithm modules are tracked in the roadmap below.
+- `cp_sat`: CP-SAT through `CpModel`, including linear constraints, boolean logic, tables, automata, circuits, intervals, no-overlap, cumulative, reservoir, arithmetic equality constraints, assumptions, hints, solver parameters, and solution enumeration.
+- `routing`: matrix-backed TSP/VRP models through `RoutingIndexManager` and `RoutingModel`, with capacities, time windows, disjunctions, and routing search parameters.
+- `mathopt`: linear MathOpt models with continuous, integer, and binary variables.
+- `linear_solver`: legacy `pywraplp` LP/MIP models with coefficient-based constraints and objectives.
+- `graph`: max-flow and min-cost-flow one-shot models.
+- `knapsack`: multidimensional knapsack models through OR-Tools' specialized knapsack solver.
+
+The remaining gaps are deeper feature coverage inside each family: advanced Routing callbacks, full MathOpt quadratic/conic features, proto import/export, richer infeasibility diagnostics, and larger example suites.
 
 ## Installation
 
@@ -59,7 +66,7 @@ Create the configuration file at `%APPDATA%\Claude\claude_desktop_config.json` (
 }
 ```
 
-## Model Specification
+## CP-SAT Model Specification
 
 Models are specified in JSON format with these top-level fields:
 
@@ -118,20 +125,106 @@ Most structured constraints also support optional `name` and `enforce_if` fields
 
 ## MCP Tools
 
-- `submit_model`: validates and stores a CP-SAT model as the active model.
-- `validate_model`: validates a CP-SAT model without replacing the active model.
-- `solve_model`: solves the active model and returns JSON-formatted status, solution values, objective metadata, and solver stats.
-- `get_solution`: returns the latest solution for the active model.
-- `describe_schema`: returns the JSON schema for the CP-SAT model format.
-- `list_capabilities`: returns supported CP-SAT features, strategy names, and known gaps.
+- `list_solver_families`: returns available solver families.
+- `submit_model`: validates and stores a model for a solver family. Accepts `family`, `model`, and optional `session_id`.
+- `validate_model`: validates a model without replacing the active model.
+- `solve_model`: solves a submitted model session and returns JSON-formatted status, solution values, objective metadata, and solver stats where available.
+- `get_solution`: returns the latest solution for a model session.
+- `clear_model`: clears one model session, or all sessions when no `session_id` is supplied.
+- `describe_schema`: returns the JSON schema for a solver-family model format.
+- `list_capabilities`: returns supported OR-Tools features, strategy names, and known gaps by family.
 
 Recommended client workflow:
 
-1. Call `list_capabilities` to confirm supported features.
-2. Call `describe_schema` when constructing or repairing a model.
-3. Call `validate_model` before replacing the active model.
-4. Call `submit_model`, then `solve_model`.
-5. Call `get_solution` when you need to inspect the latest result again.
+1. Call `list_solver_families` to discover available families.
+2. Call `list_capabilities` with a `family` to confirm supported features.
+3. Call `describe_schema` with a `family` when constructing or repairing a model.
+4. Call `validate_model` before replacing a session.
+5. Call `submit_model`, then `solve_model`.
+6. Call `get_solution` when you need to inspect the latest result again.
+
+## Additional Solver Family Models
+
+### Routing
+
+Routing models use matrix-backed callbacks for safe MCP use. A minimal TSP model:
+
+```json
+{
+    "distance_matrix": [
+        [0, 1, 2],
+        [1, 0, 4],
+        [2, 4, 0]
+    ],
+    "num_vehicles": 1,
+    "depot": 0,
+    "search_parameters": {
+        "first_solution_strategy": "PATH_CHEAPEST_ARC"
+    }
+}
+```
+
+Optional routing fields include `demands`, `vehicle_capacities`, `time_matrix`, `time_windows`, `time_horizon`, `time_slack`, and `disjunctions`.
+
+### MathOpt
+
+MathOpt models currently support linear variables, linear constraints, and linear objectives:
+
+```json
+{
+    "variables": [{"name": "x", "lb": 0, "ub": 10}],
+    "constraints": [{"expression": "x", "lb": 2, "ub": 10}],
+    "objective": {"expression": "x", "maximize": true},
+    "solver_type": "GLOP"
+}
+```
+
+### pywraplp Linear Solver
+
+The `linear_solver` family provides coefficient-based LP/MIP models:
+
+```json
+{
+    "solver_type": "SCIP",
+    "variables": [
+        {"name": "x", "lb": 0, "ub": 1, "integer": true},
+        {"name": "y", "lb": 0, "ub": 1, "integer": true}
+    ],
+    "constraints": [{"coefficients": {"x": 1, "y": 1}, "lb": 1, "ub": 1}],
+    "objective": {"coefficients": {"x": 3, "y": 2}, "maximize": true}
+}
+```
+
+### Graph Flow
+
+The `graph` family supports `max_flow` and `min_cost_flow`:
+
+```json
+{
+    "algorithm": "max_flow",
+    "source": 0,
+    "sink": 3,
+    "arcs": [
+        {"tail": 0, "head": 1, "capacity": 3},
+        {"tail": 0, "head": 2, "capacity": 2},
+        {"tail": 1, "head": 3, "capacity": 2},
+        {"tail": 2, "head": 3, "capacity": 4}
+    ]
+}
+```
+
+### Knapsack
+
+The `knapsack` family wraps OR-Tools' specialized knapsack solver:
+
+```json
+{
+    "values": [6, 10, 12],
+    "weights": [[1, 2, 3]],
+    "capacities": [5],
+    "solver_type": "dynamic_programming"
+}
+```
 
 ## Usage Examples
 
@@ -337,28 +430,15 @@ Use `no_overlap_2d` for rectangle packing by pairing each rectangle's x and y in
 
 ## Features
 
-- Comprehensive JSON coverage for the main OR-Tools CP-SAT `CpModel` primitives
-- JSON-based model specification
-- Support for:
-  - Integer and boolean variables, including custom value and interval domains
-  - Structured JSON constraints
-  - Linear constraints and linear expression domains
-  - Boolean constraints, implications, and reified enforcement
-  - All-different constraints
-  - Table constraints with allowed and forbidden assignments
-  - Automata, circuits, multiple circuits, inverse, element, and map-domain constraints
-  - Scheduling intervals
-  - No-overlap, 2D no-overlap, cumulative, and reservoir resource constraints
-  - Min, max, absolute value, multiplication, division, and modulo equality constraints
-  - Linear optimization objectives
-  - Warm-start solution hints
-  - Assumptions for infeasibility analysis
-  - Decision strategies
-  - Timeouts and CP-SAT solver parameters
-  - Binary constraints and relationships
-  - Portfolio selection problems
-  - Knapsack problems
-  - Scheduling, packing, sequencing, routing-like, and state-machine models
+- Solver-family registry with capability and schema discovery.
+- Session-aware model submission, solving, solution retrieval, and clearing.
+- Comprehensive JSON coverage for the main OR-Tools CP-SAT `CpModel` primitives.
+- Matrix-backed Routing support for TSP/VRP, capacities, time windows, disjunctions, and search parameters.
+- MathOpt linear optimization support for continuous, integer, and binary variables.
+- pywraplp linear/MIP support for coefficient-based models.
+- Graph support for max-flow and min-cost-flow algorithms.
+- Specialized multidimensional knapsack support.
+- Cross-family tests with known optimal or feasible solutions.
 
 ### Supported Operations in Constraints
 
@@ -371,18 +451,18 @@ Use `no_overlap_2d` for rectangle packing by pairing each rectangle's x and y in
 
 ## Roadmap
 
-This project currently focuses on a structured MCP interface for OR-Tools CP-SAT. Full MCP coverage of OR-Tools would require adding the other solver families, richer solver workflows, and API ergonomics that make those capabilities discoverable and safe for LLM clients.
+This project now exposes the major OR-Tools solver families through separate MCP model surfaces. Remaining work is mostly depth: richer family-specific features, import/export, diagnostics, examples, and compatibility hardening.
 
 ### Current Coverage
 
-- CP-SAT model submission, validation, solving, and solution retrieval.
+- CP-SAT model submission, validation, solving, enumeration, and solution retrieval.
 - Structured JSON coverage for the main `CpModel` primitives listed above.
 - Solver parameters, timeouts, warm-start hints, assumptions, basic infeasibility metadata, objective values, and solve statistics.
-- MCP tools for submitting, validating, solving, retrieving solutions, describing the schema, and listing capabilities.
+- Routing, MathOpt, pywraplp, graph flow, and knapsack adapters for common model shapes.
+- MCP tools for listing solver families, submitting, validating, solving, retrieving solutions, clearing sessions, describing schemas, and listing capabilities.
 
 ### Further CP-SAT Hardening
 
-- Add solution enumeration with callbacks and configurable solution limits.
 - Return richer solver artifacts, including full response stats, model validation output, serialized model protos, and optional solver logs.
 - Improve infeasibility tooling with assumption-name mapping and clearer unsat-core reporting.
 - Tighten the JSON schema with per-constraint required fields and stronger type-specific validation.
@@ -390,24 +470,22 @@ This project currently focuses on a structured MCP interface for OR-Tools CP-SAT
 
 ### Additional OR-Tools APIs
 
-- Routing: expose vehicle routing, TSP, VRP, pickup-and-delivery, capacities, time windows, penalties, dimensions, and route extraction.
-- Linear and mixed-integer optimization: expose `pywraplp` or MathOpt model creation, constraints, objectives, solver selection, parameters, and dual/basis information where available.
-- Network flows: expose max flow, min-cost flow, assignment, and matching-style APIs.
-- Specialized algorithms: expose knapsack/bin-packing helpers and other OR-Tools algorithm modules where they remain supported upstream.
-- MathOpt: evaluate whether the newer MathOpt API should become the preferred interface for LP/MIP/QP style models.
+- Routing: add pickup-and-delivery, richer dimensions, vehicle-specific transit/cost callbacks, and route diagnostics.
+- MathOpt: add quadratic objectives/constraints, duals, reduced costs, basis information, and broader solver parameter support where available.
+- pywraplp: add export formats, dual/basis metadata where supported, and clearer solver availability diagnostics.
+- Graph algorithms: add assignment/matching-style helpers if they remain supported upstream.
+- Specialized algorithms: evaluate bin-packing helpers and document when to prefer CP-SAT or MathOpt instead.
 
 ### MCP Surface
 
-- Add separate tools for `clear_model` and solver-family-specific submissions.
-- Support named model sessions so clients can keep multiple models active at once.
 - Add import/export tools for model JSON, CP-SAT protos, and solver responses.
 - Add resource endpoints for schemas, examples, capability matrices, and last-solve diagnostics.
 - Consider returning structured MCP resource content in addition to JSON text where clients support it.
 
 ### Quality And Compatibility
 
-- Build a cross-solver test corpus with known optimal solutions.
-- Add property-style tests for schema validation and parser error messages.
+- Expand the cross-solver test corpus with larger known-optimal examples.
+- Add property-style tests for schema validation, parser error messages, and adapter session behavior.
 - Track OR-Tools version compatibility and gate capabilities based on the installed package.
 - Document unsupported OR-Tools features explicitly so clients can distinguish "not implemented" from "not supported upstream."
 
